@@ -1,0 +1,425 @@
+go.property("timer", 0)
+
+local blocksize = 96		-- Distance between block centers
+local edge = 80				-- Left and right edge.
+local bottom_edge = 80		-- Bottom edge.
+local boardwidth = 9		-- Number of columns
+local boardheight = 9		-- Number of rows
+
+--
+-- The list of fishes that are used. These names must match animations/images
+-- in the atlas used for fishes.
+--
+--
+local colors = { hash("yellow"), hash("blue"), hash("orange"),
+				hash("purple"), hash("green"), hash("red") }
+
+local type_plain = hash("plain")
+local type_striped_h = hash("striped-h")
+local type_striped_v = hash("striped-v")
+local type_wrapped = hash("wrapped")
+local type_bomb = hash("bomb")
+
+local function is_striped(fish)
+	return fish.type == type_striped_v or fish.type == type_striped_h
+end
+
+local function is_wrapped(fish)
+	return fish.type == type_wrapped
+end
+
+--
+-- INIT the board
+--
+function init(self)
+	self.board = {}				-- Contains the board structure in 2D
+	self.link = {}
+
+	--
+	-- Start the game
+	--
+	msg.post("#", "start_level")
+	msg.post(".", "acquire_input_focus")
+end
+
+--
+-- Construct a new random board. It's a 2D table with origo in the
+-- bottom left corner:
+--
+--  ...
+-- (0,2) (1,2) (2,2)
+-- (0,1) (1,1) (2,1)
+-- (0,0) (1,0) (2,0) ...
+--
+-- Each slot stores the id of the game object that sits there, the x and y
+-- position and the type, for easy searching. Storing the x and y position is
+-- redundant but useful if we use the slots out of context, which we do at times. 
+-- 
+local function build_board()
+	local board = {}
+	math.randomseed(os.time())
+	local pos = vmath.vector3()
+	local x = 0
+	local y = 0
+	for x = 0,boardwidth-1 do
+		pos.x = edge + blocksize / 2 + blocksize * x
+		board[x] = {}
+		for y = 0,boardheight-1 do
+			pos.y = bottom_edge + blocksize / 2 + blocksize * y
+			local color = colors[math.random(#colors)]	-- Pick a random color
+			local type = type_plain
+			local id = factory.create("#fish_factory", pos, null, { color = color })
+			board[x][y] = { id = id, x = x, y = y, color = color, type = type }
+		end
+	end	
+	return board
+end
+
+
+--
+-- Apply shift-down logic to all slots on the board, then
+-- call the callback.
+--
+local function collapse_board(board, callback)
+	local duration = 0.3
+	--
+	-- Slide all remaining blocks down into blank (nil) spots.
+	-- Going column by column makes this easy.
+	--
+	-- Avoid some garbage creation by reusing these locals 
+	-- through the loops
+	--
+	local dy = 0
+	local pos = vmath.vector3()
+	for x = 0,boardwidth - 1 do
+		--
+		-- Reset the drop down distance for each column
+		--
+		dy = 0
+		for y = 0,boardheight - 1 do
+			if board[x][y] ~= nil then
+				if dy > 0 then
+					--
+					-- Move down dy steps
+					--
+					board[x][y - dy] = board[x][y]
+					board[x][y] = nil
+					--
+					-- Calc new position and animate
+					---
+					board[x][y - dy].y = board[x][y - dy].y - dy
+					go.animate(board[x][y-dy].id, "position.y", go.PLAYBACK_ONCE_FORWARD, bottom_edge + blocksize / 2 + blocksize * (y - dy), go.EASING_OUTBOUNCE, duration)
+				end
+			else
+				--
+				-- Empty slot - increase the distance to move
+				--
+				dy = dy + 1
+			end
+		end
+	end
+	
+	go.animate("#", "timer", go.PLAYBACK_ONCE_FORWARD, 1, go.EASING_LINEAR, duration, 0, callback)	
+end
+
+
+--
+-- Return an iterator function for all non-empty slots
+--
+local function iterate_fishes(board)
+	local x = 0
+	local y = -1
+	return function()
+		repeat
+			y = y + 1
+			if x == boardwidth - 1 and y == boardheight then
+				return nil
+			end
+			
+			if y == boardheight then
+				y = 0
+				x = x + 1
+			end
+		until board[x][y]
+		return board[x][y]
+	end
+end
+
+
+--
+-- Remove a single fish from the board
+--
+local function remove_fish(board, fish)
+	if not board[fish.x][fish.y] then
+		-- the fish has already been removed
+		-- this can happen when we remove a match and a line blast or
+		-- other special fish effect takes place at the same time
+		return
+	end
+	
+	msg.post(fish.id, "remove")
+	--
+	-- Empty slots are set to nil so we can find them
+	--
+	board[fish.x][fish.y] = nil
+
+	--
+	-- Horisontal lineblast
+	--
+	if fish.type == type_striped_h then
+		for x=0, boardwidth -1 do
+			if board[x][fish.y] then
+				remove_fish(board, board[x][fish.y])
+			end
+		end
+	--
+	-- Vertical lineblast
+	--
+	elseif fish.type == type_striped_v then
+		for y=0, boardheight -1 do
+			if board[fish.x][y] then
+				remove_fish(board, board[fish.x][y])
+			end
+		end
+	--
+	-- Wrapped explosion - remove all adjacent fishes
+	--
+	elseif fish.type == type_wrapped then
+		for x = fish.x - 1, fish.x + 1 do
+			for y = fish.y - 1, fish.y + 1 do
+				if board[x] and board[x][y] then
+					remove_fish(board, board[x][y])
+				end
+			end
+		end
+	--
+	-- Bomb
+	--
+	elseif fish.type == type_bomb then
+		print("removing bomb - add code to remove fishes of the color that is most common")
+	end
+end
+
+
+--
+-- Remove a list of fishes from the board
+--
+local function remove_fishes(board, fishes)
+	for _,fish in pairs(fishes) do
+		remove_fish(board, fish)
+	end
+end
+
+
+--
+-- Change type and color of an existing fish
+-- Use this when converting fishes into other types due
+-- to a match of some kind
+-- Will clear list of neighbors
+--
+local function respawn(fish, type, color)
+	fish.color = color
+	fish.type = type
+	fish.neighbors_vertical = {}
+	fish.neighbors_horisontal = {}
+	msg.post(fish.id, "respawn", { color = fish.color, type = fish.type, position = go.get_position(fish.id) })
+end
+
+
+--
+-- Remove all fish in a link
+--
+local function remove_link(board, link, callback)
+	-- reset the animation on all fish in the link
+	for _,slot in pairs(link) do
+		msg.post(slot.id, "reset")
+	end
+	-- ignore short links
+	if #link < 3 then
+		callback()
+		return
+	end
+	-- create special fish of the link is long enough
+	if #link > 6 then
+		local fish = table.remove(link)
+		respawn(fish, type_wrapped, fish.color)
+	end
+	-- remove fish and wait before invoking callback
+	remove_fishes(board, link)
+	local duration = 0.3
+	go.animate("#", "timer", go.PLAYBACK_ONCE_FORWARD, 1, go.EASING_LINEAR, duration, 0, callback)
+end
+
+
+--
+-- Add a slot to the link
+--
+local function add_to_link(self, x, y)
+	-- outside board or empty
+	if x < 0 or x >= boardwidth or y < 0 or y >= boardheight or self.board[x][y] == nil then
+		return
+	end
+	
+	local slot = self.board[x][y]
+	
+	-- add the first slot to the link without any checks
+	if #self.link == 0 then
+		msg.post(slot.id, "zoom_and_wobble")
+		table.insert(self.link, slot)
+		return
+	end
+
+	local last = self.link[#self.link]
+	local previous = self.link[#self.link - 1]
+	local distance = math.max(math.abs(last.x - x), math.abs(last.y - y))
+	-- don't add the same slot more than once and don't add slots that are too far away
+	if distance ~= 1 then
+		return
+	end
+	-- don't add slots of a different color
+	if last.color ~= slot.color then
+		return
+	end
+	-- going back to the previous link
+	-- remove the last slot of the link
+	if previous == slot then
+		self.link[#self.link] = nil
+		msg.post(last.id, "reset")
+		return
+	end
+	-- don't try to add the same slot twice
+	for i=1,#self.link do
+		if self.link[i] == slot then
+			return
+		end
+	end	
+	-- the new slot is ok, add it
+	msg.post(slot.id, "zoom_and_wobble")
+	table.insert(self.link, slot)
+end
+
+
+-- 
+-- Find and return any empty slots.
+--
+local function empty_slots(board)
+	local slots = {}
+	for x = 0, boardwidth - 1 do
+		for y = 0, boardheight - 1 do
+			if board[x][y] == nil then
+				--
+				-- The slot is nil/empty so we store this position in the
+				-- list of slots that we will return
+				--
+				table.insert(slots, { x = x, y = y })
+			end
+		end
+	end
+	return slots
+end
+
+--
+-- Drop spawned fish to the board. Target the supplied slots. 
+-- When done, call callback.
+--
+local function fill_slots(board, empty_slots, callback)
+	local duration = 0.3
+	--
+	-- Go through the list of empty slots and drop a (reused) fish
+	-- game object into its position.
+	--
+	local pos = vmath.vector3()	-- Reuse through loop
+	for i, s in pairs(empty_slots) do
+		--
+		-- Calc the x position of this slot
+		--
+		pos.x = edge + blocksize / 2 + blocksize * s.x
+		--
+		-- Start above the screen so we can animate into place
+		-- 
+		pos.y = 1000
+		--
+		-- Pick a random fish
+		--
+		local color = colors[math.random(#colors)]
+		local type = type_plain
+		--
+		-- Create a new fish game object
+		--
+		local id = factory.create("#fish_factory", pos, null, { color = color })
+		--
+		-- Animate into the slot's calculated y position
+		--
+		go.animate(id, "position.y", go.PLAYBACK_ONCE_FORWARD, bottom_edge + blocksize / 2 + blocksize * s.y, go.EASING_OUTBOUNCE, duration)
+		--
+		-- Store the new data in the slot (it was nil)
+		--
+		board[s.x][s.y] = { id = id, type = type, color = color, x = s.x, y = s.y }
+	end
+
+	go.animate("#", "timer", go.PLAYBACK_ONCE_FORWARD, 1, go.EASING_LINEAR, duration, 0, callback)
+end
+
+--
+-- MESSAGE HANDLING
+--
+function on_message(self, message_id, message, sender)
+	if message_id == hash("start_level") then
+		--
+		-- Create a new random board
+		--
+		self.board = build_board()
+	elseif message_id == hash("post-reaction") then
+		--
+		-- Collapse any remaining slots
+		--
+		collapse_board(self.board, function ()
+			--
+			-- Find empty slots
+			--
+			local s = empty_slots(self.board)
+			
+			--
+			-- If there are empty slots, fill them.
+			--
+			if #s > 0 then
+				fill_slots(self.board, s, function ()
+					--
+					-- After filling
+					--
+				end)
+			end
+		end)
+	end
+end
+
+
+--
+-- INPUT HANDLING
+--
+function on_input(self, action_id, action)
+	if action_id == hash("touch") or self.linking then
+		--
+		-- What block was touched?
+		--
+		local x = math.floor((action.x - edge) / blocksize)
+		local y = math.floor((action.y - edge) / blocksize)
+		
+		--
+		-- Try to add it to the link
+		--
+		add_to_link(self, x, y)
+		
+		-- Start linking
+		if action.pressed then
+			self.linking = true
+		-- Stop linking remove link
+		elseif action.released then
+			remove_link(self.board, self.link, function()
+				self.linking = false
+				self.link = {}
+				msg.post("#", "post-reaction")
+			end)
+		end
+	end
+end
