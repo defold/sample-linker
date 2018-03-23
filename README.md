@@ -4,7 +4,7 @@ Welcome to the linker sample game. Click and drag and link three or more fish of
 
 [Play the game!](defold://build)
 
-![linker](.images/linker.jpg)
+![linker](doc/linker.jpg)
 
 Check out [the documentation pages](https://defold.com/learn) for more examples, tutorials, manuals and API docs.
 
