@@ -1,5 +1,3 @@
-go.property("timer", 0)
-
 local blocksize = 96		-- Distance between block centers
 local edge = 80				-- Left and right edge.
 local bottom_edge = 80		-- Bottom edge.
@@ -119,7 +117,6 @@ local function collapse_board(board, callback)
 		end
 	end
 	
-	go.animate("#", "timer", go.PLAYBACK_ONCE_FORWARD, 1, go.EASING_LINEAR, duration, 0, callback)	
 end
 
 
@@ -246,8 +243,7 @@ local function remove_link(board, link, callback)
 	end
 	-- remove fish and wait before invoking callback
 	remove_fishes(board, link)
-	local duration = 0.3
-	go.animate("#", "timer", go.PLAYBACK_ONCE_FORWARD, 1, go.EASING_LINEAR, duration, 0, callback)
+	timer.delay(0.3, false, callback)
 end
 
 
@@ -357,7 +353,7 @@ local function fill_slots(board, empty_slots, callback)
 		board[s.x][s.y] = { id = id, type = type, color = color, x = s.x, y = s.y }
 	end
 
-	go.animate("#", "timer", go.PLAYBACK_ONCE_FORWARD, 1, go.EASING_LINEAR, duration, 0, callback)
+	timer.delay(1, false, callback)
 end
 
 --

@@ -56,8 +56,8 @@ function init(self)
 	if self.color ~= nil then
 		-- All fish are created plain
 		local c = colors[self.color]
-		msg.post("#sprite", "play_animation", { id = hash("fish-" .. c) })
-		msg.post("#sprite-eyes", "play_animation", { id = hash("eyes-" .. c) })
+		sprite.play_flipbook("#sprite", "fish-" .. c)
+		sprite.play_flipbook("#sprite-eyes", "eyes-" .. c)
 	else
 		msg.post("#sprite", "disable")
 	end
@@ -95,8 +95,8 @@ function on_message(self, message_id, message, sender)
 			e = "eyes-starfish"
 			c = "fish-starfish"
 		end
-		msg.post("#sprite", "play_animation", { id = hash(c) })
-		msg.post("#sprite-eyes", "play_animation", { id = hash(e) })
+		sprite.play_flipbook("#sprite", c)
+		sprite.play_flipbook("#sprite-eyes", e)
 	elseif message_id == hash("sway") then
 		local rot = go.get(".", "euler.z")
 		go.set(".", "euler.z", rot - 1)
