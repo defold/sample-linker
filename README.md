@@ -2,7 +2,7 @@
 
 Welcome to the linker sample game. Click and drag and link three or more fish of the same color together to remove them from the board. Long chains of fish yields boosters.
 
-[Play the game!](defold://build)
+[Play the game!](defold://project.build)
 
 ![linker](doc/linker.jpg)
 
