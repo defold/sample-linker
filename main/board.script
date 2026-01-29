@@ -395,11 +395,12 @@ end
 --
 function on_input(self, action_id, action)
 	if action_id == hash("touch") or self.linking then
+		local world = camera.screen_xy_to_world(action.screen_x, action.screen_y, "camera#camera")
 		--
 		-- What block was touched?
 		--
-		local x = math.floor((action.x - edge) / blocksize)
-		local y = math.floor((action.y - edge) / blocksize)
+		local x = math.floor((world.x - edge) / blocksize)
+		local y = math.floor((world.y - edge) / blocksize)
 		
 		--
 		-- Try to add it to the link
